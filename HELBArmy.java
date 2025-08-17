@@ -17,10 +17,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * HELBArmy Game Implementation.
+ * HELBArmy Game Implementation with Sprite Graphics.
  * Military simulation where two armies fight for territorial control.
  *
  * This class contains all the game logic, separated from the main entry point.
+ * Now uses sprite-based graphics according to the official HELBArmy charter.
  */
 public class HELBArmy {
 
@@ -48,7 +49,10 @@ public class HELBArmy {
      * @throws Exception If initialization fails
      */
     public void start(Stage primaryStage) throws Exception {
-        System.out.println("Initializing HELBArmy game...");
+        System.out.println("Initializing HELBArmy game with sprite graphics...");
+
+        // Preload all sprites before starting the game
+        SpriteRenderer.preloadAllImages();
 
         // Setup JavaFX window
         setupWindow(primaryStage);
@@ -84,6 +88,11 @@ public class HELBArmy {
                 handleKeyPress(event.getCode());
             }
         });
+
+        // Handle window close event
+        primaryStage.setOnCloseRequest(e -> {
+            endGame();
+        });
     }
 
     /**
@@ -107,7 +116,7 @@ public class HELBArmy {
     }
 
     /**
-     * Starts the main game loop.
+     * Starts the main game loop with current game speed.
      */
     private void startGameLoop() {
         gameLoop = new Timeline(new KeyFrame(Duration.seconds(1.0 / gameSpeed), e -> updateGame()));
@@ -120,12 +129,12 @@ public class HELBArmy {
      */
     private void printGameInstructions() {
         System.out.println("\n=== GAME CONTROLS ===");
-        System.out.println("North Team (Blue cities):");
+        System.out.println("North Team (Cities with black stars):");
         System.out.println("  A - Generate Lumberjack");
         System.out.println("  Z - Generate Sower");
         System.out.println("  E - Generate Assassin");
         System.out.println("  R - Generate Random Unit");
-        System.out.println("\nSouth Team (Red cities):");
+        System.out.println("\nSouth Team (Cities with white stars):");
         System.out.println("  W - Generate Lumberjack");
         System.out.println("  X - Generate Sower");
         System.out.println("  C - Generate Assassin");
@@ -138,6 +147,9 @@ public class HELBArmy {
         System.out.println("  U - Clear all Resources");
         System.out.println("  I - Spawn Flag");
         System.out.println("  P - Spawn Philosopher Stone");
+        System.out.println("  + - Increase Speed (faster game)");
+        System.out.println("  - - Decrease Speed (slower game)");
+        System.out.println("  0 - Reset Speed to normal");
         System.out.println("  O - End Game");
         System.out.println("=====================\n");
     }
@@ -197,17 +209,17 @@ public class HELBArmy {
         // Process combat after all movements
         CombatSystem.processCombats(gameMap);
 
-        // Draw everything
+        // Draw everything using sprites
         drawBackground();
-        drawResources();
-        drawUnits();
-        drawCities();
-        drawCollectables();
+        drawResourcesWithSprites();
+        drawUnitsWithSprites();
+        drawCitiesWithSprites();
+        drawCollectablesWithSprites();
         drawUI();
     }
 
     /**
-     * Handles keyboard input for cheat codes.
+     * Handles keyboard input for cheat codes and game controls.
      */
     private void handleKeyPress(KeyCode keyCode) {
         switch (keyCode) {
@@ -235,66 +247,63 @@ public class HELBArmy {
             case I: spawnFlag(); break;
             case P: spawnPhilosopherStone(); break;
 
+            // Speed controls
+            case PLUS:
+            case EQUALS: // + key (with or without shift)
+                setGameSpeed(gameSpeed * 1.2); // 20% faster
+                break;
+            case MINUS: // - key
+                setGameSpeed(gameSpeed * 0.8); // 25% slower
+                break;
+            case DIGIT0: // 0 key to reset
+                setGameSpeed(1.0);
+                break;
+
             default: break;
         }
     }
 
     /**
-     * Generates a unit of specified type for specified team.
+     * Updates the game speed and restarts the game loop with new timing.
+     * @param newSpeed New speed multiplier (0.5 = twice as fast, 2.0 = twice as slow)
      */
-    private void generateUnit(UnitType type, Team team) {
-        City teamCity = gameMap.getCityForTeam(team);
-        if (teamCity == null) return;
+    private void setGameSpeed(double newSpeed) {
+        this.gameSpeed = Math.max(0.1, Math.min(10.0, newSpeed));
 
-        Position spawnPos = findSpawnPosition(team);
-        if (spawnPos != null) {
-            Unit newUnit = createUnit(type, spawnPos, team);
-            if (newUnit != null) {
-                gameMap.addUnit(newUnit);
-                System.out.println("Generated " + type + " for " + team + " at " + spawnPos);
-            }
+        // Restart the game loop with new speed
+        if (gameLoop != null) {
+            gameLoop.stop();
+            startGameLoop();
+        }
+
+        System.out.println("Game speed set to: " + String.format("%.1f", this.gameSpeed) + "x (" + getSpeedDescription() + ")");
+    }
+
+    /**
+     * Gets a human-readable description of current game speed.
+     * @return Speed description for UI display
+     */
+    private String getSpeedDescription() {
+        if (gameSpeed < 0.5) {
+            return String.format("%.1fx Fast", 1.0 / gameSpeed);
+        } else if (gameSpeed < 1.0) {
+            return String.format("%.1fx Fast", 1.0 / gameSpeed);
+        } else if (gameSpeed > 2.0) {
+            return String.format("%.1fx Slow", gameSpeed);
+        } else if (gameSpeed > 1.0) {
+            return String.format("%.1fx Slow", gameSpeed);
         } else {
-            System.out.println("No spawn position available for " + team);
+            return "Normal";
         }
-    }
-
-    /**
-     * Creates a unit instance based on type.
-     */
-    private Unit createUnit(UnitType type, Position position, Team team) {
-        switch (type) {
-            case LUMBERJACK: return new Lumberjack(position, team);
-            case MINER: return new Miner(position, team);
-            case SOWER: return new Sower(position, team);
-            case ASSASSIN: return new Assassin(position, team);
-            default: return null;
-        }
-    }
-
-    /**
-     * Finds a spawn position near a team's city.
-     */
-    private Position findSpawnPosition(Team team) {
-        Position cityPos = team.getCityPosition();
-
-        // Try positions in expanding radius
-        for (int radius = 1; radius <= 3; radius++) {
-            for (int dx = -radius; dx <= radius; dx++) {
-                for (int dy = -radius; dy <= radius; dy++) {
-                    Position candidate = new Position(cityPos.getX() + dx, cityPos.getY() + dy);
-                    if (gameMap.isValidPosition(candidate) && gameMap.isPositionFree(candidate)) {
-                        return candidate;
-                    }
-                }
-            }
-        }
-        return null;
     }
 
     // ================================
-    // DRAWING METHODS
+    // DRAWING METHODS WITH SPRITES
     // ================================
 
+    /**
+     * Draws the checkered background pattern.
+     */
     private void drawBackground() {
         for (int i = 0; i < ROWS; i++) {
             for (int j = 0; j < COLUMNS; j++) {
@@ -308,85 +317,79 @@ public class HELBArmy {
         }
     }
 
-    private void drawCities() {
+    /**
+     * Draws all cities using sprites according to team.
+     */
+    private void drawCitiesWithSprites() {
         for (City city : gameMap.getCities()) {
             Position pos = city.getPosition();
-            gc.setFill(city.getDisplayColor());
-            gc.fillRect(pos.getX() * SQUARE_SIZE, pos.getY() * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE);
-
-            // Add black center dot
-            gc.setFill(Color.BLACK);
-            gc.fillOval(pos.getX() * SQUARE_SIZE + 10, pos.getY() * SQUARE_SIZE + 10,
-                    SQUARE_SIZE - 20, SQUARE_SIZE - 20);
+            boolean isNorth = city.getTeam() == Team.NORTH;
+            SpriteRenderer.drawCity(gc, pos.getX(), pos.getY(), isNorth);
         }
     }
 
-    private void drawResources() {
+    /**
+     * Draws all resources (trees and rocks) using sprites.
+     */
+    private void drawResourcesWithSprites() {
         for (Resource resource : gameMap.getResources()) {
             Position pos = resource.getPosition();
-            gc.setFill(resource.getDisplayColor());
 
-            if (resource instanceof Rock) {
-                // Rock occupies 2x2 area
-                gc.fillRect(pos.getX() * SQUARE_SIZE, pos.getY() * SQUARE_SIZE,
-                        SQUARE_SIZE * 2, SQUARE_SIZE * 2);
-            } else {
-                // Tree is single square
-                gc.fillRect(pos.getX() * SQUARE_SIZE, pos.getY() * SQUARE_SIZE,
-                        SQUARE_SIZE, SQUARE_SIZE);
+            if (resource instanceof Tree) {
+                SpriteRenderer.drawTree(gc, pos.getX(), pos.getY());
+            } else if (resource instanceof Rock) {
+                SpriteRenderer.drawRock(gc, pos.getX(), pos.getY());
             }
         }
     }
 
-    private void drawUnits() {
+    /**
+     * Draws all units using appropriate sprites based on type and team.
+     */
+    private void drawUnitsWithSprites() {
         for (Unit unit : gameMap.getUnits()) {
             if (!unit.isAlive()) continue;
 
             Position pos = unit.getPosition();
-            Color unitColor = unit.getDisplayColor();
+            boolean isNorth = unit.getTeam() == Team.NORTH;
 
-            // Draw unit as colored circle
-            gc.setFill(unitColor);
-            gc.fillOval(pos.getX() * SQUARE_SIZE + 2, pos.getY() * SQUARE_SIZE + 2,
-                    SQUARE_SIZE - 4, SQUARE_SIZE - 4);
-
-            // Add team indicator (small dot)
-            gc.setFill(unit.getTeam().getTeamColor());
-            gc.fillOval(pos.getX() * SQUARE_SIZE + SQUARE_SIZE/2 - 3,
-                    pos.getY() * SQUARE_SIZE + SQUARE_SIZE/2 - 3, 6, 6);
-        }
-    }
-
-    private void drawCollectables() {
-        for (Collectable collectable : gameMap.getCollectables()) {
-            Position pos = collectable.getPosition();
-            gc.setFill(collectable.getDisplayColor());
-
-            if (collectable instanceof Flag) {
-                // Draw flag as triangle
-                double x = pos.getX() * SQUARE_SIZE;
-                double y = pos.getY() * SQUARE_SIZE;
-                double[] xPoints = {x + 5, x + SQUARE_SIZE - 5, x + SQUARE_SIZE/2};
-                double[] yPoints = {y + SQUARE_SIZE - 5, y + SQUARE_SIZE - 5, y + 5};
-                gc.fillPolygon(xPoints, yPoints, 3);
-
-                // Show remaining time
-                Flag flag = (Flag) collectable;
-                gc.setFill(Color.WHITE);
-                gc.setFont(new Font("Arial", 10));
-                gc.fillText(String.valueOf(flag.getRemainingLifetime()), x, y + 15);
-            } else if (collectable instanceof PhilosopherStone) {
-                // Draw philosopher stone as diamond
-                double x = pos.getX() * SQUARE_SIZE + SQUARE_SIZE/2;
-                double y = pos.getY() * SQUARE_SIZE + SQUARE_SIZE/2;
-                double size = SQUARE_SIZE/3;
-                double[] xPoints = {x, x + size, x, x - size};
-                double[] yPoints = {y - size, y, y + size, y};
-                gc.fillPolygon(xPoints, yPoints, 4);
+            if (unit instanceof Lumberjack || unit instanceof Miner) {
+                // Both lumberjacks and miners are collectors
+                SpriteRenderer.drawCollector(gc, pos.getX(), pos.getY(), isNorth);
+            } else if (unit instanceof Sower) {
+                SpriteRenderer.drawSower(gc, pos.getX(), pos.getY(), isNorth);
+            } else if (unit instanceof Assassin) {
+                SpriteRenderer.drawAssassin(gc, pos.getX(), pos.getY(), isNorth);
             }
         }
     }
 
+    /**
+     * Draws all collectables (flags and philosopher stones) using sprites.
+     */
+    private void drawCollectablesWithSprites() {
+        for (Collectable collectable : gameMap.getCollectables()) {
+            Position pos = collectable.getPosition();
+
+            if (collectable instanceof Flag) {
+                SpriteRenderer.drawFlag(gc, pos.getX(), pos.getY());
+
+                // Show remaining time on flag
+                Flag flag = (Flag) collectable;
+                gc.setFill(Color.WHITE);
+                gc.setFont(new Font("Arial", 12));
+                gc.fillText(String.valueOf(flag.getRemainingLifetime()),
+                        pos.getX() * SQUARE_SIZE + 5, pos.getY() * SQUARE_SIZE + 15);
+
+            } else if (collectable instanceof PhilosopherStone) {
+                SpriteRenderer.drawPhilosopherStone(gc, pos.getX(), pos.getY());
+            }
+        }
+    }
+
+    /**
+     * Draws the user interface including statistics and controls info.
+     */
     private void drawUI() {
         gc.setFill(Color.WHITE);
         gc.setFont(new Font("Arial", 16));
@@ -421,8 +424,22 @@ public class HELBArmy {
             gc.fillText("South - Wood: " + southCity.getWoodResources() +
                     " Ore: " + southCity.getOreResources(), WIDTH - 200, 40);
         }
+
+        // Show game speed info
+        gc.setFill(Color.CYAN);
+        gc.setFont(new Font("Arial", 14));
+        gc.fillText("Speed: " + getSpeedDescription(), WIDTH - 200, 60);
+        gc.fillText("Controls: +/- speed, 0 reset", WIDTH - 200, 80);
+
+        // Show sprite cache info
+        gc.setFill(Color.LIGHTGRAY);
+        gc.setFont(new Font("Arial", 12));
+        gc.fillText(SpriteRenderer.getCacheInfo(), 10, HEIGHT - 30);
     }
 
+    /**
+     * Draws the game over screen with final scores and winner.
+     */
     private void drawGameOver() {
         gc.setFill(Color.RED);
         gc.setFont(new Font("Arial", 40));
@@ -450,6 +467,72 @@ public class HELBArmy {
     // UTILITY METHODS
     // ================================
 
+    /**
+     * Generates a unit of specified type for specified team.
+     * @param type Type of unit to generate
+     * @param team Team to generate unit for
+     */
+    private void generateUnit(UnitType type, Team team) {
+        City teamCity = gameMap.getCityForTeam(team);
+        if (teamCity == null) return;
+
+        Position spawnPos = findSpawnPosition(team);
+        if (spawnPos != null) {
+            Unit newUnit = createUnit(type, spawnPos, team);
+            if (newUnit != null) {
+                gameMap.addUnit(newUnit);
+                System.out.println("Generated " + type + " for " + team + " at " + spawnPos);
+            }
+        } else {
+            System.out.println("No spawn position available for " + team);
+        }
+    }
+
+    /**
+     * Creates a unit instance based on type.
+     * @param type Type of unit to create
+     * @param position Position for the new unit
+     * @param team Team the unit belongs to
+     * @return New unit instance
+     */
+    private Unit createUnit(UnitType type, Position position, Team team) {
+        switch (type) {
+            case LUMBERJACK: return new Lumberjack(position, team);
+            case MINER: return new Miner(position, team);
+            case SOWER: return new Sower(position, team);
+            case ASSASSIN: return new Assassin(position, team);
+            default: return null;
+        }
+    }
+
+    /**
+     * Finds a spawn position near a team's city.
+     * @param team Team to find spawn position for
+     * @return Free position near city, or null if none available
+     */
+    private Position findSpawnPosition(Team team) {
+        Position cityPos = team.getCityPosition();
+
+        // Try positions in expanding radius
+        for (int radius = 1; radius <= 3; radius++) {
+            for (int dx = -radius; dx <= radius; dx++) {
+                for (int dy = -radius; dy <= radius; dy++) {
+                    Position candidate = new Position(cityPos.getX() + dx, cityPos.getY() + dy);
+                    if (gameMap.isValidPosition(candidate) && gameMap.isPositionFree(candidate)) {
+                        return candidate;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Determines the winner based on resource comparison.
+     * @param northCity North team's city
+     * @param southCity South team's city
+     * @return Winner description string
+     */
     private String determineWinner(City northCity, City southCity) {
         boolean northWood = northCity.getWoodResources() > southCity.getWoodResources();
         boolean northOre = northCity.getOreResources() > southCity.getOreResources();
@@ -463,12 +546,19 @@ public class HELBArmy {
         }
     }
 
+    /**
+     * Generates a random unit type for the specified team.
+     * @param team Team to generate random unit for
+     */
     private void generateRandomUnit(Team team) {
         UnitType[] types = UnitType.values();
         UnitType randomType = types[(int) (Math.random() * types.length)];
         generateUnit(randomType, team);
     }
 
+    /**
+     * Removes all collector units from the map.
+     */
     private void killCollectors() {
         List<Unit> toRemove = new ArrayList<>();
         for (Unit unit : gameMap.getUnits()) {
@@ -482,6 +572,9 @@ public class HELBArmy {
         System.out.println("All collectors eliminated (" + toRemove.size() + " units)");
     }
 
+    /**
+     * Removes all sower units from the map.
+     */
     private void killSowers() {
         List<Unit> toRemove = new ArrayList<>();
         for (Unit unit : gameMap.getUnits()) {
@@ -495,6 +588,9 @@ public class HELBArmy {
         System.out.println("All sowers eliminated (" + toRemove.size() + " units)");
     }
 
+    /**
+     * Removes all assassin units from the map.
+     */
     private void killAssassins() {
         List<Unit> toRemove = new ArrayList<>();
         for (Unit unit : gameMap.getUnits()) {
@@ -508,22 +604,34 @@ public class HELBArmy {
         System.out.println("All assassins eliminated (" + toRemove.size() + " units)");
     }
 
+    /**
+     * Removes all units from the map.
+     */
     private void killAllUnits() {
         int count = gameMap.getUnits().size();
         gameMap.getUnits().clear();
         System.out.println("All units eliminated (" + count + " units)");
     }
 
+    /**
+     * Removes all resources from the map.
+     */
     private void clearAllResources() {
         int count = gameMap.getResources().size();
         gameMap.getResources().clear();
         System.out.println("All resources cleared (" + count + " resources)");
     }
 
+    /**
+     * Forces a flag to spawn immediately.
+     */
     private void spawnFlag() {
         flagManager.forceSpawnFlag(gameMap);
     }
 
+    /**
+     * Spawns a philosopher stone at a random position.
+     */
     private void spawnPhilosopherStone() {
         Position pos = gameMap.findRandomFreePosition();
         if (pos != null) {
@@ -535,6 +643,9 @@ public class HELBArmy {
         }
     }
 
+    /**
+     * Ends the game, shows final results, and cleans up resources.
+     */
     private void endGame() {
         gameRunning = false;
         if (gameLoop != null) {
@@ -558,6 +669,9 @@ public class HELBArmy {
         if (northCity != null && southCity != null) {
             System.out.println("Winner: " + determineWinner(northCity, southCity));
         }
+
+        // Clean up sprite cache
+        SpriteRenderer.clearImageCache();
         System.out.println("==================\n");
     }
 }
